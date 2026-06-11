@@ -1,0 +1,79 @@
+# coding=utf-8
+# Copyright 2020 The Google Research Authors.
+# Modifications copyright 2024 Henry Addison
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Training"""
+import sys
+sys.dont_write_bytecode = True
+#====================================================================
+# import torch
+# if torch.cuda.is_available():
+#     torch.cuda.init()
+#====================================================================
+import os
+from absl import app
+from absl import flags
+from ml_collections.config_flags import config_flags
+import logging
+import os
+from dotenv import load_dotenv
+
+sys.path.append(os.getcwd())
+from src import train_model
+#====================================================================
+log_dir = os.path.join(os.getcwd(), "Outputs")
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, "log.log")
+open(log_file, 'w').close()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.FileHandler(log_file, mode='w'),  # Overwrite mode
+        logging.StreamHandler(),  # Also logs to stdout
+    ],
+)
+
+logger = logging.getLogger(__name__)
+logger.info(" << <<< <<<< Logging setup complete. See %s >>>> >>> >>>", log_file)
+print(" << <<< <<<< Logging setup complete. See", log_file, " >>>> >>> >>>")
+#====================================================================
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string("dm_type", None, "Which method to load data")
+config_flags.DEFINE_config_file(
+    "config", None, "Training configuration.", lock_config=True
+)
+flags.DEFINE_enum("mode", None, ["train"], "Running mode: train")
+flags.DEFINE_string("filename", None, "File to train on")
+flags.DEFINE_string("val_filename", None, "File containing the validation data")
+flags.mark_flags_as_required(["config", "mode", "filename", "val_filename"])
+
+def main(argv):
+    if FLAGS.mode == "train":
+        # Create the working directory
+        load_dotenv()
+        os.makedirs(os.getenv('WORK_DIR'), exist_ok=True)
+
+        train_model.train(FLAGS.config, FLAGS.filename, FLAGS.val_filename)
+    
+    else:
+        raise ValueError(f"Mode {FLAGS.mode} not recognized.")
+
+
+if __name__ == "__main__":
+    app.run(main)

@@ -1,0 +1,109 @@
+import ml_collections
+import torch
+
+def get_default_configs():
+    print(" >> inside configs.default_josh_config.py")
+
+    config = ml_collections.ConfigDict()
+    config.experiment_name = 'Elev'
+    config.deterministic = True # False means uses diffusion, True means uses deterministic mse loss
+    
+    # training
+    config.training = training = ml_collections.ConfigDict()
+    config.training.batch_size = 12 #128
+    training.n_epochs = 100
+    training.snapshot_freq = 1
+    training.log_freq = 50
+    training.eval_freq = 1000
+    ## store additional checkpoints for preemption in cloud computing environments
+    training.snapshot_freq_for_preemption = 1000
+    ## produce samples at each snapshot.
+    training.snapshot_sampling = False
+    training.likelihood_weighting = False
+    training.continuous = True
+    training.reduction = 'mean' # Options: 'mean', 'sum', 'none'. See BCELoss docs
+    training.det_loss_type = 'DUAL' # Options: 'BCE', 'MSE', 'DUAL'.
+    training.balance_losses = False # If True and det_loss_type='DUAL', use EMA to keep MSE and BCE magnitudes equal
+    training.precip_weight = True # Options: None if you don't want a weight, float or int for a custom weight, other if the weight should be estimated from the data
+    config.training.precip_threshold = 20
+    config.training.pytorch2_speedup = True  # Enable PyTorch 2 speedups (torch.compile, TF32, BF16, Flash Attention, etc.) — set True to activate
+
+    # model
+    config.model = model = ml_collections.ConfigDict()
+    model.sigma_min = 0.01
+    model.sigma_max = 50
+    model.num_scales = 1000
+    model.beta_min = 0.1
+    model.beta_max = 20.
+    model.dropout = 0.1
+    model.embedding_type = 'fourier'
+    model.loc_spec_channels = 0
+
+    # sampling
+    config.sampling = sampling = ml_collections.ConfigDict()
+    sampling.n_steps_each = 1
+    sampling.noise_removal = True
+    sampling.probability_flow = False
+    sampling.snr = 0.16
+    sampling.num_scales = 1000
+    
+    # evaluation
+    config.eval = evaluate = ml_collections.ConfigDict()
+    evaluate.begin_ckpt = 9
+    evaluate.end_ckpt = 26
+    evaluate.batch_size = 128
+    evaluate.enable_sampling = False
+    evaluate.num_samples = 50000
+    evaluate.enable_loss = True
+    evaluate.enable_bpd = False
+    evaluate.bpd_dataset = 'test'
+
+    # data
+    config.data = data = ml_collections.ConfigDict()
+    data.dataset = 'UKCP_Local'
+    data.dataset_name = 'ERA5_IMERG_Med_192x192_2000-2024' #'bham64_ccpm-4x_1em_psl-sphum4th-temp4th-vort4th_pr'
+    data.image_size = 192
+    data.random_flip = False  # Enable random horizontal/vertical flips during training
+    data.fail_on_nan = False  # Abort training/sampling if NaNs are detected in collate input/target data
+    data.centered = False
+    data.uniform_dequantization = False
+    data.input_transform_dataset = ""
+    data.input_transform_key = "stan"
+    data.target_transform_key = "sqrturrecen"
+
+    
+    data.predictands = ml_collections.ConfigDict()
+    data.predictands.variables = ("precipitation",)
+    data.predictands.target_transform_keys = ("sqrturrecen",)
+
+    data.predictors = ml_collections.ConfigDict()
+    #data.predictors.variables = ["specHum850", "specHum700", "specHum500", "specHum250", "temp850", "temp700", "temp500", "temp250", "vort850", "vort700", "vort500", "vort250", "mslp"]
+    #data.predictors.input_transform_keys = ["stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan"]
+
+    data.predictors.variables = ["specHum850", "specHum700", "specHum500", "specHum250", "temp850", "temp700", "temp500", "temp250", "vort850", "vort700", "vort500", "vort250", "mslp", "elevation"]
+    data.predictors.input_transform_keys = ["stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "stan", "mm"]
+
+    #data.predictors.variables =            ["relHum850", "relHum700", "relHum500", "relHum250", "u-wind850", "u-wind700", "u-wind500", "u-wind250", "v-wind850", "v-wind700", "v-wind500", "v-wind250", "specHum850", "specHum700", "specHum500", "specHum250", "temp850", "temp700", "temp500", "temp250", "vort850", "vort700", "vort500", "vort250", "mslp", "elevation", "land_sea_mask"]
+    #data.predictors.input_transform_keys = ["stan",      "stan",      "stan",      "stan",      "stan",      "stan",      "stan",       "stan",     "stan",      "stan",      "stan",      "stan",      "stan",       "stan",       "stan",       "stan",       "stan",    "stan",    "stan",    "stan",    "stan",    "stan",     "stan",   "stan",    "stan", "mm",        "noop"]
+
+    data.target_transform_overrides = ml_collections.ConfigDict()
+    data.time_inputs = False
+
+    # optimization
+    config.optim = optim = ml_collections.ConfigDict()
+    optim.weight_decay = 0
+    optim.optimizer = 'Adam' # Options: 'Adam', 'SGD', uhhh
+    optim.scheduler = 'fixed' # Options: 'fixed', 'decay', 'triangle'
+    optim.lr = 2e-4
+    optim.final_lr = 2e-4
+    optim.beta1 = 0.9
+    optim.eps = 1e-8
+    optim.warmup = 5000
+    optim.grad_clip = 1.
+    optim.num_waves = 4
+    optim.period = 2
+
+    config.seed = 42
+    config.device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+
+    return config
