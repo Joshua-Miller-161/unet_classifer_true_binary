@@ -35,7 +35,7 @@ import functools
 import logging
 logger = logging.getLogger(__name__)
 
-from .layers import get_act, get_timestep_embedding, default_init, ddpm_conv3x3, Upsample, Downsample
+from .layers import get_act, get_timestep_embedding, default_init, ddpm_conv3x3, Upsample, Downsample, ToBinary
 from .layerspp import GaussianFourierProjection, AttnBlockpp, ResnetBlockBigGANpp, ResnetBlockDDPMpp, Combine
 from .utils import get_sigmas, register_model
 #from .data_scripts.data_utils import get_variables
@@ -92,7 +92,10 @@ class cNCSNpp(nn.Module):
             modules.append(nn.Linear(nf * 4, nf * 4))
             modules[-1].weight.data = default_init()(modules[-1].weight.shape)
             nn.init.zeros_(modules[-1].bias)
-
+        #------------------------------------------------------------
+        # uhh
+        self.ToBinary_ = ToBinary(len(config.data.predictands.variables), config.data.image_size, config.data.image_size)
+        #------------------------------------------------------------
         AttnBlock = functools.partial(AttnBlockpp, init_scale=init_scale, skip_rescale=skip_rescale)
 
         Upsample_ = functools.partial(Upsample, with_conv=resamp_with_conv, fir=fir, fir_kernel=fir_kernel)
@@ -354,6 +357,7 @@ class cNCSNpp(nn.Module):
             used_sigmas = used_sigmas.reshape((x.shape[0], *([1] * (x.ndim - 1))))
             h = h / used_sigmas
 
+        h = self.ToBinary_(h)
         return h
 
 

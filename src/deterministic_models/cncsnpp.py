@@ -7,7 +7,7 @@ import functools
 import logging
 logger = logging.getLogger(__name__)
 
-from ..layers import get_act, ddpm_conv3x3, Upsample, Downsample
+from ..layers import get_act, ddpm_conv3x3, Upsample, Downsample, ToBinary
 from ..layerspp import AttnBlockpp, ResnetBlockBigGANpp, ResnetBlockDDPMpp, Combine
 from ..utils import register_model
 #from .data_scripts.data_utils import get_variables
@@ -53,6 +53,11 @@ class cNCSNpp(nn.Module):
         # In deterministic mode we do not supply time/noise embeddings. Keep the
         # architecture identical otherwise by simply disabling the temb path.
         embed_dim = None
+
+        #------------------------------------------------------------
+        # uhh
+        self.ToBinary_ = ToBinary(len(config.data.predictands.variables), config.data.image_size, config.data.image_size)
+        #------------------------------------------------------------
 
         AttnBlock = functools.partial(AttnBlockpp, init_scale=init_scale, skip_rescale=skip_rescale)
 
@@ -296,4 +301,5 @@ class cNCSNpp(nn.Module):
         h = modules[m_idx](h); m_idx += 1
         assert m_idx == len(modules)
 
+        h = self.ToBinary_(h)
         return h

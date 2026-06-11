@@ -44,7 +44,24 @@ def get_act(config):
   else:
     raise NotImplementedError('activation function does not exist!')
 
-
+class ToBinary(nn.Module):
+    def __init__(self, channels, n, m):
+        super().__init__()
+        in_features = channels * n * m
+        self.net = nn.Sequential(
+            nn.Flatten(start_dim=1),
+            nn.Linear(in_features, 256),
+            nn.ReLU(),
+            nn.LayerNorm(256),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.LayerNorm(64),
+            nn.Linear(64, 1),
+            nn.Flatten()
+        )
+    def forward(self, x):
+        return self.net(x).squeeze(-1)
+  
 def ncsn_conv1x1(in_planes, out_planes, stride=1, bias=True, dilation=1, init_scale=1., padding=0):
   """1x1 convolution. Same as NCSNv1/v2."""
   conv = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=bias, dilation=dilation,

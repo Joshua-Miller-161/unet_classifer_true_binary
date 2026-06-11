@@ -43,7 +43,7 @@ VESDE,VPSDE = None,None # dummy to keep code running won't be used
 #====================================================================
 def get_BCEWithLogitsLoss(train, criterion, threshold, reduce_mean=True):
     logger.info(" >> >> INSIDE get_BCEWithLogitsLoss")
-    
+    step = 0
     def loss_fn(model, batch, cond, generator=None):
         """Compute the loss function for a deterministic run.
 
@@ -61,16 +61,18 @@ def get_BCEWithLogitsLoss(train, criterion, threshold, reduce_mean=True):
         t = torch.zeros(batch.shape[0])#, device=batch.device)
         pred = model(x, cond, t)
 
-        # CREATE 1s and 0s GROUND TRUTH DATA
-        batch_binary = (batch >= threshold).to(torch.float32)
-        
-        #if (torch.sum(batch_binary) > 0):
-        #    if is_main_process():
-        #        logger.info(f" >> >> INSIDE get_BCEWithLogitsLoss | mean pred {torch.mean(pred)}")
-        #        logger.info(f" >> >> INSIDE get_BCEWithLogitsLoss | sum batch_binary {torch.sum(batch_binary)}")
-        
-        loss = criterion(pred, batch_binary)
+        pred = pred.float()
 
+        # CREATE 1s and 0s GROUND TRUTH DATA
+        # Per-sample: shape (batch_size,)
+        batch_binary = (batch >= threshold).any(dim=tuple(range(1, batch.ndim))).float()
+        
+        if step % 1000 == 0 and is_main_process():
+            logger.info(f" >> >> INSIDE get_BCEWithLogitsLoss | pred {pred.detach().cpu().numpy()}")
+            logger.info(f" >> >> INSIDE get_BCEWithLogitsLoss | batch_binary {batch_binary.detach().cpu().numpy()}")
+            
+        loss = criterion(pred, batch_binary)
+        step += 1
         #if is_main_process():
         #   logger.info(f" >> >> INSIDE get_deterministic_loss_fn loss {loss}")
         #   logger.info("_____________________________________________________")
@@ -78,31 +80,7 @@ def get_BCEWithLogitsLoss(train, criterion, threshold, reduce_mean=True):
 
     return loss_fn
 #====================================================================
-def get_mse_loss_fn(sde, train, reduce_mean=True):
-    def loss_fn(model, batch, cond, generator=None):
-        """Compute the MSE loss function for a deterministic model.
 
-        Args:
-        model: A score model.
-        batch: A mini-batch of training/evaluation data to model.
-        cond: A mini-batch of conditioning inputs.
-        generator: An optional random number generator so can control the timesteps and initial noise samples used by loss function [ignored in train mode]
-
-        Returns:
-        loss: A scalar that represents the average loss value across the mini-batch.
-        """
-        # for deterministic model, do not use the time or target inputs - set to 0 always
-        x = torch.zeros_like(batch)
-        t = torch.zeros(batch.shape[0])#, device=batch.device)
-        pred = model(x, cond, t)
-
-        loss = F.mse_loss(pred, batch)
-
-        #if is_main_process():
-        #   logger.info(f" >> >> INSIDE get_mse_loss_fn loss {loss}")
-        #   logger.info("_____________________________________________________")
-        return loss
-    return loss_fn
 #====================================================================
 def get_loss(sde, train, config, zarr_path):
     print(" >> >> INSIDE losses.get_loss sde", type(sde), ", config.deterministic", config.deterministic, type(config.deterministic))
@@ -125,49 +103,7 @@ def get_loss(sde, train, config, zarr_path):
             threshold_tensor = torch.tensor(threshold)
         
             loss_fn = get_BCEWithLogitsLoss(train, criterion, threshold_tensor)
-        
-        elif (config.training.det_loss_type == 'MSE'):
-            loss_fn = get_mse_loss_fn(sde, train, reduce_mean=config.training.reduce_mean)
-        
-        elif (config.training.det_loss_type == 'DUAL'):
-            weight = get_BCE_loss_weight(config, zarr_path)
-            criterion = nn.BCEWithLogitsLoss(weight=weight, reduction=config.training.reduction)
-            threshold_tensor = torch.tensor(np.float32(config.training.precip_threshold))
-            _bce = get_BCEWithLogitsLoss(train, criterion, threshold_tensor)
-            _mse = get_mse_loss_fn(sde, train, reduce_mean=config.training.reduce_mean)
 
-            if config.training.balance_losses:
-                ema = [1.0, 1.0]  # [ema_mse, ema_bce]
-                alpha = 0.99
-
-                def loss_fn(model, batch, cond, generator=None):
-                    l_mse = _mse(model, batch, cond, generator)
-                    l_bce = _bce(model, batch, cond, generator)
-                    ema[0] = alpha * ema[0] + (1 - alpha) * l_mse.item()
-                    ema[1] = alpha * ema[1] + (1 - alpha) * l_bce.item()
-                    
-                    l_total = l_mse + (ema[0] / (ema[1] + 1e-8)) * l_bce
-                    
-                    l_mse_ = l_mse.item()
-                    l_bce_ = l_bce.item()
-                    l_total_ = l_total.item()
-                    #if is_main_process():
-                    #    logger.info(f" >> >> INSIDE get_loss DUAL BALANCED | l_mse={l_mse_:.5f}, l_bce={l_bce_:.5f}, l_total={l_total_:.5f}, ema[0]={ema[0]:.5f}, ema[1]={ema[1]:.5f}")
-                    
-                    return l_total
-            else:
-                def loss_fn(model, batch, cond, generator=None):
-                    l_mse = _mse(model, batch, cond, generator)
-                    l_bce = _bce(model, batch, cond, generator)
-
-                    l_mse_ = l_mse.item()
-                    l_bce_ = l_bce.item()
-                    l_total_ = l_mse_+l_bce_
-                    #if is_main_process():
-                    #    logger.info(f" >> >> INSIDE get_loss DUAL | l_mse={l_mse_:.5f}, l_bce={l_bce_:.5f}, l_total={l_total_:.5f}")
-                    
-                    return l_mse + l_bce
-       
     else:
         if config.training.continuous:
             loss_fn = get_sde_loss_fn(sde, 

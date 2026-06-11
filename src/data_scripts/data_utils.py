@@ -239,33 +239,40 @@ def decode_zarr_time_array(
     return dt_arr
 #====================================================================
 def count_precip_above_threshold(config, zarr_path):
-    #derived_data = os.getenv('DERIVED_DATA', '.')
-    #zarr_path    = os.path.join(derived_data, config.data.dataset_name)
-    ds           = xr.open_zarr(zarr_path, consolidated=True)
-    precip_var   = config.data.predictands.variables[0]
-    precip_da    = ds[precip_var]
-    
-    threshold    = config.training.precip_threshold
-    logger.info(f" >> >> INSIDE data_utils.count_precip_above_threshold | Calculating weight... threshold = {threshold}")
+    ds         = xr.open_zarr(zarr_path, consolidated=True)
+    precip_var = config.data.predictands.variables[0]
+    precip_da  = ds[precip_var]
+    threshold  = config.training.precip_threshold
+    logger.info(f" >> >> INSDE count_precip_above_threshold | Calculating weight... threshold = {threshold}")
+
+    # All dims except time — works for any spatial layout (lat/lon, x/y, grid_cell, etc.)
+    spatial_dims  = [d for d in precip_da.dims if d != 'time']
+    # Axis indices for the NumPy path — axis 0 is time, everything else is spatial
+    spatial_axes  = tuple(range(1, precip_da.ndim))
 
     if isinstance(precip_da.data, dask_array.Array):
-        # ---- Dask path: lazy graph → single compute with progress bar ----
-        count = (precip_da > threshold).sum()
+        # .any(dim=spatial_dims) → BooleanArray of shape (time,): True if ANY spatial point exceeds threshold
+        # .sum()                 → scalar: count of timesteps that had at least one extreme
+        count = (precip_da > threshold).any(dim=spatial_dims).sum()
         with ProgressBar():
             result = int(count.compute())
     else:
-        # ---- NumPy path: chunk along time axis with tqdm ----
-        result = 0
+        result      = 0
         time_chunks = np.array_split(precip_da.values, min(100, len(precip_da.time)), axis=0)
         for chunk in tqdm(time_chunks, desc="Counting", unit="chunk"):
-            result += int((chunk > threshold).sum())
+            # (chunk > threshold)               → bool array (chunk_time, lat, lon)
+            # .any(axis=spatial_axes)           → bool array (chunk_time,): one value per timestep
+            # .sum()                            → count of extreme timesteps in this chunk
+            result += int((chunk > threshold).any(axis=spatial_axes).sum())
 
-    weight = (precip_da.size-result) / result
-    weight_path = os.path.join(os.getcwd(), 'precip_weight', config.experiment_name, config.data.dataset_name, 'precip_weight_'+str(config.training.precip_threshold)+'.npy')
+    weight     = (precip_da.sizes['time'] - result) / result
+    weight_path = os.path.join(os.getcwd(), 'precip_weight', config.experiment_name,
+                               config.data.dataset_name,
+                               'precip_weight_' + str(config.training.precip_threshold) + '.npy')
     os.makedirs(os.path.dirname(weight_path), exist_ok=True)
-    
-    logger.info(f" >> >> INSIDE data_utils.count_precip_above_threshold | Weight = {weight}\n >> >> Saving to {weight_path}")
-    print(f" >> >> INSIDE data_utils.count_precip_above_threshold | Weight = {weight}\n >> >> Saving to {weight_path}")
+
+    logger.info(f" >> >> INSIDE count_precip_above_threshold | weight = {weight}. Saving to {weight_path}")
+    print(f" >> >> INSIDE count_precip_above_threshold | weight = {weight}. Saving to {weight_path}")
     np.save(weight_path, weight)
-     
+
     return weight
