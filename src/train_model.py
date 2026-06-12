@@ -102,6 +102,7 @@ def train(config, filename, val_filename):
         use_distributed_sampler=True,
         log_every_n_steps=10,
         val_check_interval=1.0, # Run validation at the end of every epoch
+        gradient_clip_val=config.optim.grad_clip,
         callbacks=[pbar, checkpoint_cb],
         **_trainer_extra_kwargs
     )

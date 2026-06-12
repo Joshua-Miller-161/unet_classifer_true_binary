@@ -191,8 +191,10 @@ class LightningDataModule(pl.LightningDataModule):
             self.train_len
         )
 
-        self.dl_kwargs['collate_fn'] = getattr(self, "train_collate", self.dl_kwargs.get('collate_fn'))
-        data_loader = DataLoader(xr_dataset, **self.dl_kwargs)
+        # Never mutate the shared self.dl_kwargs: the sanity-check val loader is
+        # built before this one, and a mutation there would silently disable
+        # shuffling for all of training.
+        data_loader = DataLoader(xr_dataset, **{**self.dl_kwargs, 'collate_fn': self.train_collate})
 
         return data_loader
 
@@ -205,10 +207,7 @@ class LightningDataModule(pl.LightningDataModule):
             self.val_len
         )
 
-        self.dl_kwargs['shuffle'] = False
-        self.dl_kwargs['collate_fn'] = getattr(self, "val_collate", self.dl_kwargs.get('collate_fn'))
-
-        data_loader = DataLoader(xr_dataset, **self.dl_kwargs)
+        data_loader = DataLoader(xr_dataset, **{**self.dl_kwargs, 'shuffle': False, 'collate_fn': self.val_collate})
 
         return data_loader
 
@@ -225,10 +224,12 @@ class LightningDataModule(pl.LightningDataModule):
             self.test_len
         )
 
-        self.dl_kwargs['num_workers'] = 0
-        self.dl_kwargs['shuffle'] = False
-        self.dl_kwargs['collate_fn'] = getattr(self, "test_collate", self.dl_kwargs.get('collate_fn'))
+        # num_workers=0 forbids the worker-only DataLoader kwargs
+        kwargs = {**self.dl_kwargs, 'shuffle': False, 'collate_fn': self.test_collate,
+                  'num_workers': 0, 'persistent_workers': False}
+        for k in ('prefetch_factor', 'multiprocessing_context'):
+            kwargs.pop(k, None)
 
-        data_loader = DataLoader(xr_dataset, **self.dl_kwargs)
-        
+        data_loader = DataLoader(xr_dataset, **kwargs)
+
         return data_loader
