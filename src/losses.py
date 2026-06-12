@@ -45,6 +45,7 @@ def get_BCEWithLogitsLoss(train, criterion, threshold, reduce_mean=True):
     logger.info(" >> >> INSIDE get_BCEWithLogitsLoss")
     step = 0
     def loss_fn(model, batch, cond, generator=None):
+        nonlocal step
         """Compute the loss function for a deterministic run.
 
         Args:
