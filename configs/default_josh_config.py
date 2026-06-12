@@ -22,8 +22,7 @@ def get_default_configs():
     training.likelihood_weighting = False
     training.continuous = True
     training.reduction = 'mean' # Options: 'mean', 'sum', 'none'. See BCELoss docs
-    training.det_loss_type = 'DUAL' # Options: 'BCE', 'MSE', 'DUAL'.
-    training.balance_losses = False # If True and det_loss_type='DUAL', use EMA to keep MSE and BCE magnitudes equal
+    training.det_loss_type = 'BCE' # Options: 'BCE'.
     training.precip_weight = True # Options: None if you don't want a weight, float or int for a custom weight, other if the weight should be estimated from the data
     config.training.precip_threshold = 20
     config.training.pytorch2_speedup = True  # Enable PyTorch 2 speedups (torch.compile, TF32, BF16, Flash Attention, etc.) — set True to activate
