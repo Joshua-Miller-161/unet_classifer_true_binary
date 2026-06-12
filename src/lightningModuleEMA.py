@@ -43,6 +43,8 @@ class ScoreModelLightningModule(pl.LightningModule):
         self.batch_size = config.training.batch_size
         self.val_losses = []
         self.train_losses = []
+        self.val_f1_stats = []
+        self.train_f1_stats = []
         self._batch_counter = 0
 
     def forward(self, x, cond, time_cond):
@@ -55,6 +57,19 @@ class ScoreModelLightningModule(pl.LightningModule):
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         self.ema.update(self.model.parameters())
+
+    @staticmethod
+    def _binary_stats(logits, labels):
+        # TP/FP/FN of the positive (extreme) class, decision threshold at logit 0 (p=0.5)
+        preds = logits >= 0
+        pos = labels.bool()
+        return torch.stack([(preds & pos).sum(), (preds & ~pos).sum(), (~preds & pos).sum()])
+
+    @staticmethod
+    def _epoch_f1(stats):
+        tp, fp, fn = torch.stack(stats).sum(dim=0).float()
+        denom = 2 * tp + fp + fn
+        return 2 * tp / denom if denom > 0 else torch.zeros_like(denom)
 
     def transfer_batch_to_device(self, batch, device, dataloader_idx=0):
         cond, target, time = batch
@@ -79,8 +94,9 @@ class ScoreModelLightningModule(pl.LightningModule):
         
         cond, target, time = batch
 
-        train_loss = self.train_loss_fn(self.model, target, cond)
+        train_loss, logits, labels = self.train_loss_fn(self.model, target, cond)
         self.train_losses.append(train_loss.detach())
+        self.train_f1_stats.append(self._binary_stats(logits, labels))
         #self.log("train_loss", loss, prog_bar=True, logger=True, batch_size=self.batch_size)
         return train_loss
 
@@ -92,6 +108,13 @@ class ScoreModelLightningModule(pl.LightningModule):
                 self.log("train_loss", avg_train_loss, prog_bar=True, logger=True, on_epoch=True, on_step=False, rank_zero_only=True)
                 print(f" >> >> Epoch {self.current_epoch} - train_loss: {avg_train_loss}")
             self.train_losses.clear()
+
+        if self.train_f1_stats:
+            train_f1 = self._epoch_f1(self.train_f1_stats)
+            if self.trainer.global_rank == 0:
+                self.log("train_f1", train_f1, prog_bar=True, logger=True, on_epoch=True, on_step=False, rank_zero_only=True)
+                print(f" >> >> Epoch {self.current_epoch} - train_f1: {train_f1}")
+            self.train_f1_stats.clear()
 
         # Log the learning rate at the end of each epoch
         optimizer = self.optimizers()
@@ -113,8 +136,9 @@ class ScoreModelLightningModule(pl.LightningModule):
             #logger.info("))))))))))))))))))))))))) VALIDATION STEP ((((((((((((((((((((((((((((") 
         
         cond, target, time = batch
-        val_loss = self.val_loss_fn(self.model, target, cond)
+        val_loss, logits, labels = self.val_loss_fn(self.model, target, cond)
         self.val_losses.append(val_loss.detach())
+        self.val_f1_stats.append(self._binary_stats(logits, labels))
         return val_loss
 
     def on_validation_epoch_start(self):
@@ -129,10 +153,16 @@ class ScoreModelLightningModule(pl.LightningModule):
             if self.trainer.global_rank == 0:
                 self.log("val_loss", avg_val_loss, prog_bar=True, sync_dist=True, logger=True, on_epoch=True, on_step=False, rank_zero_only=True)
 
+        if self.val_f1_stats:
+            val_f1 = self._epoch_f1(self.val_f1_stats)
+            if self.trainer.global_rank == 0:
+                self.log("val_f1", val_f1, prog_bar=True, sync_dist=True, logger=True, on_epoch=True, on_step=False, rank_zero_only=True)
+
         # Restore original weights
         self.ema.restore(self.model.parameters())
-        # Clear the buffer
+        # Clear the buffers
         self.val_losses.clear()
+        self.val_f1_stats.clear()
 
     def on_save_checkpoint(self, checkpoint):
         checkpoint["ema"] = self.ema.state_dict()

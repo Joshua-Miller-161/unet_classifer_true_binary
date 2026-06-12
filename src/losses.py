@@ -77,7 +77,7 @@ def get_BCEWithLogitsLoss(train, criterion, threshold, reduce_mean=True):
         #if is_main_process():
         #   logger.info(f" >> >> INSIDE get_deterministic_loss_fn loss {loss}")
         #   logger.info("_____________________________________________________")
-        return loss
+        return loss, pred.detach(), batch_binary
 
     return loss_fn
 #====================================================================
@@ -98,7 +98,9 @@ def get_loss(sde, train, config, zarr_path):
 
         if (config.training.det_loss_type == 'BCE'):
             weight = get_BCE_loss_weight(config, zarr_path)
-            criterion = nn.BCEWithLogitsLoss(weight=weight, reduction=config.training.reduction)
+            # pos_weight upweights positive examples by neg/pos; `weight` would
+            # rescale every element uniformly and do no class balancing.
+            criterion = nn.BCEWithLogitsLoss(pos_weight=weight, reduction=config.training.reduction)
         
             threshold = np.float32(config.training.precip_threshold)
             threshold_tensor = torch.tensor(threshold)
